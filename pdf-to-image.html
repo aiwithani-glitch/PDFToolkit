@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF to Image — Convert PDF to JPG/PNG Online | iLovePDFToolkit</title>
+  <meta name="description" content="Convert each PDF page into a JPG or PNG image, right in your browser. Free and 100% private." />
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+  <header>
+    <div class="container nav">
+      <a href="index.html" class="logo">iLovePDF<span>Toolkit</span></a>
+      <ul class="nav-links">
+        <li><a href="merge.html">Merge</a></li>
+        <li><a href="split.html">Split</a></li>
+        <li><a href="compress.html">Compress</a></li>
+        <li><a href="pdf-to-image.html">To Image</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <main class="tool-page">
+    <div class="container">
+      <div class="tool-header">
+        <h1>PDF to Image</h1>
+        <p>Convert each page of a PDF into a high-quality JPG or PNG.</p>
+      </div>
+
+      <div class="privacy">Your files are processed locally in your browser — nothing is uploaded.</div>
+
+      <div class="dropzone" id="dropzone">
+        <div class="dropzone-icon">+</div>
+        <h3>Drop a PDF file here</h3>
+        <p>or click to browse</p>
+        <input type="file" id="fileInput" accept="application/pdf" />
+      </div>
+
+      <div class="file-list" id="fileList"></div>
+
+      <div id="options" class="hidden">
+        <div class="form-group">
+          <label for="format">Output format</label>
+          <select id="format">
+            <option value="png">PNG (lossless, larger)</option>
+            <option value="jpeg" selected>JPG (smaller, recommended)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="dpi">Resolution</label>
+          <select id="dpi">
+            <option value="1.5">Standard (1.5x)</option>
+            <option value="2" selected>High (2x)</option>
+            <option value="3">Print quality (3x)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn-secondary btn" id="clearBtn" disabled>Clear</button>
+        <button class="btn" id="convertBtn" disabled>Convert</button>
+        <button class="btn-secondary btn hidden" id="downloadAllBtn">Download all as ZIP</button>
+      </div>
+
+      <div class="status hidden" id="status"></div>
+
+      <div class="image-grid" id="imageGrid"></div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="container">
+      &copy; <span id="year"></span> iLovePDFToolkit. All processing happens in your browser.
+    </div>
+  </footer>
+
+  <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="assets/js/common.js"></script>
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+
+    let currentFile = null;
+    let renderedImages = [];
+
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const fileList = document.getElementById('fileList');
+    const convertBtn = document.getElementById('convertBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const downloadAllBtn = document.getElementById('downloadAllBtn');
+    const options = document.getElementById('options');
+    const formatSel = document.getElementById('format');
+    const dpiSel = document.getElementById('dpi');
+    const imageGrid = document.getElementById('imageGrid');
+
+    setupDropzone(dropzone, fileInput, (newFiles) => {
+      currentFile = newFiles[0];
+      renderedImages = [];
+      imageGrid.innerHTML = '';
+      downloadAllBtn.classList.add('hidden');
+      render();
+    });
+
+    function render() {
+      fileList.innerHTML = '';
+      if (currentFile) {
+        fileList.appendChild(renderFileItem(currentFile, 0, () => {
+          currentFile = null;
+          renderedImages = [];
+          imageGrid.innerHTML = '';
+          downloadAllBtn.classList.add('hidden');
+          render();
+        }));
+      }
+      const has = !!currentFile;
+      options.classList.toggle('hidden', !has);
+      convertBtn.disabled = !has;
+      clearBtn.disabled = !has;
+    }
+
+    clearBtn.onclick = () => {
+      currentFile = null;
+      renderedImages = [];
+      imageGrid.innerHTML = '';
+      downloadAllBtn.classList.add('hidden');
+      render();
+      hideStatus();
+    };
+
+    convertBtn.onclick = async () => {
+      if (!currentFile) return;
+      convertBtn.disabled = true;
+      imageGrid.innerHTML = '';
+      renderedImages = [];
+      downloadAllBtn.classList.add('hidden');
+
+      try {
+        const format = formatSel.value;
+        const scale = parseFloat(dpiSel.value);
+        const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+        const ext = format === 'png' ? 'png' : 'jpg';
+        const baseName = currentFile.name.replace(/\.pdf$/i, '');
+
+        const buf = await currentFile.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+
+        for (let i = 1; i <= pdf.numPages; i++) {
+          showStatus('Rendering page ' + i + ' of ' + pdf.numPages + '...', 'info');
+          const page = await pdf.getPage(i);
+          const viewport = page.getViewport({ scale });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          await page.render({ canvasContext: ctx, viewport }).promise;
+
+          const blob = await new Promise(r => canvas.toBlob(r, mimeType, format === 'jpeg' ? 0.92 : undefined));
+          const fileName = baseName + '_page_' + i + '.' + ext;
+          renderedImages.push({ blob, name: fileName });
+
+          // preview
+          const card = document.createElement('div');
+          card.className = 'image-card';
+          const img = document.createElement('img');
+          img.src = URL.createObjectURL(blob);
+          card.appendChild(img);
+          const meta = document.createElement('div');
+          meta.className = 'image-meta';
+          meta.innerHTML = '<div>Page ' + i + ' · ' + formatBytes(blob.size) + '</div>';
+          const dl = document.createElement('button');
+          dl.className = 'btn-secondary btn';
+          dl.style.cssText = 'margin: 8px 0; padding: 6px 14px; font-size: 13px;';
+          dl.textContent = 'Download';
+          dl.onclick = () => downloadBlob(blob, fileName);
+          meta.appendChild(dl);
+          card.appendChild(meta);
+          imageGrid.appendChild(card);
+        }
+
+        showStatus('Converted ' + pdf.numPages + ' page(s).', 'success');
+        if (renderedImages.length > 1) downloadAllBtn.classList.remove('hidden');
+      } catch (err) {
+        console.error(err);
+        showStatus('Error: ' + (err.message || 'Could not convert PDF'), 'error');
+      }
+      convertBtn.disabled = !currentFile;
+    };
+
+    downloadAllBtn.onclick = async () => {
+      if (!renderedImages.length) return;
+      const zip = new JSZip();
+      renderedImages.forEach(({ blob, name }) => zip.file(name, blob));
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const baseName = currentFile.name.replace(/\.pdf$/i, '');
+      downloadBlob(blob, baseName + '_images.zip');
+    };
+  </script>
+</body>
+</html>

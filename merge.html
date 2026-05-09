@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Merge PDF — Combine PDFs Online for Free | iLovePDFToolkit</title>
+  <meta name="description" content="Merge multiple PDF files into a single document for free. 100% private — files never leave your browser." />
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+  <header>
+    <div class="container nav">
+      <a href="index.html" class="logo">iLovePDF<span>Toolkit</span></a>
+      <ul class="nav-links">
+        <li><a href="merge.html">Merge</a></li>
+        <li><a href="split.html">Split</a></li>
+        <li><a href="compress.html">Compress</a></li>
+        <li><a href="pdf-to-image.html">To Image</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <main class="tool-page">
+    <div class="container">
+      <div class="tool-header">
+        <h1>Merge PDF</h1>
+        <p>Combine multiple PDF files into one. Drag to reorder.</p>
+      </div>
+
+      <div class="privacy">Your files are processed locally in your browser — nothing is uploaded.</div>
+
+      <div class="dropzone" id="dropzone">
+        <div class="dropzone-icon">+</div>
+        <h3>Drop PDF files here</h3>
+        <p>or click to browse · select 2 or more files</p>
+        <input type="file" id="fileInput" accept="application/pdf" multiple />
+      </div>
+
+      <div class="file-list" id="fileList"></div>
+
+      <div class="actions-bar">
+        <button class="btn-secondary btn" id="clearBtn" disabled>Clear all</button>
+        <button class="btn" id="mergeBtn" disabled>Merge & Download</button>
+      </div>
+
+      <div class="status hidden" id="status"></div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="container">
+      &copy; <span id="year"></span> iLovePDFToolkit. All processing happens in your browser.
+    </div>
+  </footer>
+
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script src="assets/js/common.js"></script>
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+
+    const { PDFDocument } = PDFLib;
+    let files = [];
+
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const fileList = document.getElementById('fileList');
+    const mergeBtn = document.getElementById('mergeBtn');
+    const clearBtn = document.getElementById('clearBtn');
+
+    setupDropzone(dropzone, fileInput, addFiles);
+
+    function addFiles(newFiles) {
+      const pdfs = newFiles.filter(f => f.name.toLowerCase().endsWith('.pdf'));
+      files = files.concat(pdfs);
+      render();
+    }
+
+    function removeAt(i) {
+      files.splice(i, 1);
+      render();
+    }
+
+    function moveUp(i) {
+      if (i > 0) {
+        [files[i - 1], files[i]] = [files[i], files[i - 1]];
+        render();
+      }
+    }
+
+    function moveDown(i) {
+      if (i < files.length - 1) {
+        [files[i + 1], files[i]] = [files[i], files[i + 1]];
+        render();
+      }
+    }
+
+    function render() {
+      fileList.innerHTML = '';
+      files.forEach((f, i) => {
+        fileList.appendChild(renderFileItem(f, i, removeAt, moveUp, moveDown));
+      });
+      mergeBtn.disabled = files.length < 2;
+      clearBtn.disabled = files.length === 0;
+    }
+
+    clearBtn.onclick = () => { files = []; render(); hideStatus(); };
+
+    mergeBtn.onclick = async () => {
+      if (files.length < 2) return;
+      mergeBtn.disabled = true;
+      showStatus('Merging ' + files.length + ' PDFs...', 'info');
+      try {
+        const merged = await PDFDocument.create();
+        for (const file of files) {
+          const buf = await file.arrayBuffer();
+          const pdf = await PDFDocument.load(buf, { ignoreEncryption: true });
+          const pages = await merged.copyPages(pdf, pdf.getPageIndices());
+          pages.forEach(p => merged.addPage(p));
+        }
+        const bytes = await merged.save();
+        downloadBlob(new Blob([bytes], { type: 'application/pdf' }), 'merged.pdf');
+        showStatus('Merged successfully — download started.', 'success');
+      } catch (err) {
+        console.error(err);
+        showStatus('Error: ' + (err.message || 'Could not merge files'), 'error');
+      }
+      mergeBtn.disabled = files.length < 2;
+    };
+  </script>
+</body>
+</html>

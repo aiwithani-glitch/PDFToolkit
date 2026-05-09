@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Compress PDF — Reduce PDF Size Online | iLovePDFToolkit</title>
+  <meta name="description" content="Reduce PDF file size for free, right in your browser. 100% private — files never leave your device." />
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+  <header>
+    <div class="container nav">
+      <a href="index.html" class="logo">iLovePDF<span>Toolkit</span></a>
+      <ul class="nav-links">
+        <li><a href="merge.html">Merge</a></li>
+        <li><a href="split.html">Split</a></li>
+        <li><a href="compress.html">Compress</a></li>
+        <li><a href="pdf-to-image.html">To Image</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <main class="tool-page">
+    <div class="container">
+      <div class="tool-header">
+        <h1>Compress PDF</h1>
+        <p>Reduce PDF size by re-rendering pages at a lower resolution.</p>
+      </div>
+
+      <div class="privacy">Your files are processed locally in your browser — nothing is uploaded.</div>
+
+      <div class="dropzone" id="dropzone">
+        <div class="dropzone-icon">+</div>
+        <h3>Drop a PDF file here</h3>
+        <p>or click to browse</p>
+        <input type="file" id="fileInput" accept="application/pdf" />
+      </div>
+
+      <div class="file-list" id="fileList"></div>
+
+      <div id="options" class="hidden">
+        <div class="form-group">
+          <label for="quality">Compression level</label>
+          <select id="quality">
+            <option value="low">Low compression — best quality</option>
+            <option value="medium" selected>Medium compression — recommended</option>
+            <option value="high">High compression — smallest file</option>
+          </select>
+          <small>Compression works by rasterising each page. Text becomes an image, so use this for scanned/printable docs.</small>
+        </div>
+      </div>
+
+      <div class="actions-bar">
+        <button class="btn-secondary btn" id="clearBtn" disabled>Clear</button>
+        <button class="btn" id="compressBtn" disabled>Compress & Download</button>
+      </div>
+
+      <div class="status hidden" id="status"></div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="container">
+      &copy; <span id="year"></span> iLovePDFToolkit. All processing happens in your browser.
+    </div>
+  </footer>
+
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <script src="assets/js/common.js"></script>
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+
+    const { PDFDocument } = PDFLib;
+    let currentFile = null;
+
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const fileList = document.getElementById('fileList');
+    const compressBtn = document.getElementById('compressBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const options = document.getElementById('options');
+    const qualitySel = document.getElementById('quality');
+
+    setupDropzone(dropzone, fileInput, (newFiles) => {
+      currentFile = newFiles[0];
+      render();
+    });
+
+    function render() {
+      fileList.innerHTML = '';
+      if (currentFile) {
+        fileList.appendChild(renderFileItem(currentFile, 0, () => {
+          currentFile = null;
+          render();
+        }));
+      }
+      const has = !!currentFile;
+      options.classList.toggle('hidden', !has);
+      compressBtn.disabled = !has;
+      clearBtn.disabled = !has;
+    }
+
+    clearBtn.onclick = () => { currentFile = null; render(); hideStatus(); };
+
+    const QUALITY = {
+      low:    { scale: 1.5, jpeg: 0.85 },
+      medium: { scale: 1.1, jpeg: 0.7 },
+      high:   { scale: 0.85, jpeg: 0.55 }
+    };
+
+    compressBtn.onclick = async () => {
+      if (!currentFile) return;
+      compressBtn.disabled = true;
+      const originalSize = currentFile.size;
+      showStatus('Compressing...', 'info');
+
+      try {
+        const { scale, jpeg } = QUALITY[qualitySel.value];
+        const buf = await currentFile.arrayBuffer();
+        const src = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+        const out = await PDFDocument.create();
+
+        for (let i = 1; i <= src.numPages; i++) {
+          showStatus('Compressing page ' + i + ' of ' + src.numPages + '...', 'info');
+          const page = await src.getPage(i);
+          const viewport = page.getViewport({ scale });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          const dataUrl = canvas.toDataURL('image/jpeg', jpeg);
+          const jpgBytes = await fetch(dataUrl).then(r => r.arrayBuffer());
+          const img = await out.embedJpg(jpgBytes);
+          const newPage = out.addPage([viewport.width, viewport.height]);
+          newPage.drawImage(img, { x: 0, y: 0, width: viewport.width, height: viewport.height });
+        }
+
+        const bytes = await out.save();
+        const newSize = bytes.length;
+        const baseName = currentFile.name.replace(/\.pdf$/i, '');
+        downloadBlob(new Blob([bytes], { type: 'application/pdf' }), baseName + '_compressed.pdf');
+
+        const pct = ((1 - newSize / originalSize) * 100).toFixed(1);
+        if (newSize < originalSize) {
+          showStatus('Done — ' + formatBytes(originalSize) + ' → ' + formatBytes(newSize) + ' (' + pct + '% smaller).', 'success');
+        } else {
+          showStatus('Done — but original file was already well-compressed (' + formatBytes(originalSize) + ' → ' + formatBytes(newSize) + '). Try higher compression.', 'info');
+        }
+      } catch (err) {
+        console.error(err);
+        showStatus('Error: ' + (err.message || 'Could not compress PDF'), 'error');
+      }
+      compressBtn.disabled = !currentFile;
+    };
+  </script>
+</body>
+</html>
